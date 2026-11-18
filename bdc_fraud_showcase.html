@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fraud Detection: Batch vs Streaming</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#16202b;--mut:#5d6b7a;--line:#d9dee5;--b:#0b6e99;--s:#c96a12;--f:#c0392b;--ok:#2e7d4f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--card:#18212b;--ink:#e8edf2;--mut:#98a6b5;--line:#2a3643;--b:#4cb4e0;--s:#f0a050;--f:#ff7b6b;--ok:#5fcf8c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10161d;--card:#18212b;--ink:#e8edf2;--mut:#98a6b5;--line:#2a3643;--b:#4cb4e0;--s:#f0a050;--f:#ff7b6b;--ok:#5fcf8c;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1020px;margin:0 auto;padding:24px 18px 60px}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;line-height:1.2;margin:0}
+h1{font-size:clamp(28px,5vw,44px)}h2{font-size:26px;margin:44px 0 6px}h3{font-size:18px}
+p{margin:6px 0;max-width:70ch}.mut{color:var(--mut)}
+.status{display:inline-block;margin-top:12px;padding:4px 12px;border:1px solid var(--s);color:var(--s);border-radius:99px;font-size:14px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.card.b{border-top:4px solid var(--b)}.card.s{border-top:4px solid var(--s)}
+.lane{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px}
+.lane h3{font-size:16px;margin-bottom:8px}.lane.b h3{color:var(--b)}.lane.s h3{color:var(--s)}
+.ev{display:flex;gap:8px;flex-wrap:wrap;min-height:44px}
+.t{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:13px;background:var(--bg);opacity:0;transform:translateY(6px);transition:.3s}
+.t.on{opacity:1;transform:none}.t.hit{border-color:var(--f);background:color-mix(in srgb,var(--f) 14%,var(--card));color:var(--f);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;align-items:center}
+button,.btn{font:inherit;border:1px solid var(--ink);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover,.btn:hover{background:var(--ink);color:var(--bg)}button.sel{background:var(--ink);color:var(--bg)}
+button:focus-visible,.btn:focus-visible,input:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.note{font-size:14px;color:var(--mut)}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch;margin-top:10px}
+.flow div{flex:1 1 130px;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:10px;font-size:14px}
+.flow b{display:block;font-size:15px}.flow .ar{flex:0 0 18px;border:0;background:none;padding:0;align-self:center;color:var(--mut);text-align:center}
+.flow.b div:not(.ar){border-left:4px solid var(--b)}.flow.s div:not(.ar){border-left:4px solid var(--s)}
+.tw{overflow-x:auto;margin-top:10px}table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}th{font-weight:600}
+.bar{height:12px;border-radius:3px;margin:3px 0}.bb{background:var(--b)}.bs{background:var(--s)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:18px;text-align:center;margin-top:12px}
+.pill{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--line);font-size:13px;margin:2px}
+</style></head><body><main>
+
+<h1>Fraud detection on big data: batch or streaming?</h1>
+<p class="mut">Big Data Computing mini project. The same synthetic transactions and the same rules run through Hadoop + Hive (batch) and Kafka (streaming), so any difference comes from the architecture alone.</p>
+<span class="status">Full runs in progress. Results appear in the Results section once the metrics files are loaded.</span>
+
+<h2>The difference in one picture</h2>
+<p>One user, the same events, the same rule. Pick a scenario and press Play. This is an illustration of the logic, not measured data.</p>
+<div class="row" id="sc">
+  <button data-k="burst" class="sel">Rapid burst</button>
+  <button data-k="cold">Cold start (big amount early)</button>
+  <button id="play">Play</button>
+</div>
+<div class="lane s"><h3>Streaming: judges each event on arrival, using only the past</h3><div class="ev" id="ls"></div><p class="note" id="ns">&nbsp;</p></div>
+<div class="lane b"><h3>Batch: waits for the job, then judges every event with full history</h3><div class="ev" id="lb"></div><p class="note" id="nb">&nbsp;</p></div>
+
+<h2>Two pipelines</h2>
+<div class="flow b"><div><b>Drive CSV</b>10K, 100K, 1M rows</div><div class="ar">&rarr;</div><div><b>HDFS</b>hdfs dfs -put, timed as ingestion</div><div class="ar">&rarr;</div><div><b>Hive table</b>external table over the CSV</div><div class="ar">&rarr;</div><div><b>HiveQL rules</b>LAG, AVG, STDDEV, haversine</div><div class="ar">&rarr;</div><div><b>Flags + metrics</b>CSV and JSON to Drive</div></div>
+<div class="flow s"><div><b>Drive CSV</b>replayed in event order</div><div class="ar">&rarr;</div><div><b>Producer</b>1K to 50K events/sec, stamps send time</div><div class="ar">&rarr;</div><div><b>Kafka</b>3 partitions, keyed by user</div><div class="ar">&rarr;</div><div><b>Scoring engine</b>running mean, window, last location</div><div class="ar">&rarr;</div><div><b>fraud-alerts</b>alerts, latency, lag</div></div>
+
+<h2>Shared rules</h2>
+<p>Both pipelines read the same <span class="pill">config.json</span>.</p>
+<div class="grid">
+<div class="card"><h3>High amount</h3><p>Amount above the user's mean plus 3 standard deviations. Streaming needs 10 past transactions first.</p></div>
+<div class="card"><h3>Rapid burst</h3><p>More than 3 transactions by one user inside 120 seconds.</p></div>
+<div class="card"><h3>Impossible travel</h3><p>More than 500 km from the previous transaction, within 30 minutes of it.</p></div>
+<div class="card"><h3>Odd hour</h3><p>Between 00:00 and 05:00 with an amount of at least 1,500.</p></div>
+</div>
+
+<h2>The data</h2>
+<div class="grid">
+<div class="card"><h3>Synthetic and reproducible</h3><p>Fixed seed. About 50 transactions per user over 14 days, with home cities, favourite merchants and personal spend levels.</p></div>
+<div class="card"><h3>Labelled fraud</h3><p>1.5% of rows: high amount 40%, burst 25%, travel 25%, odd hour 10%.</p></div>
+<div class="card"><h3>Deliberately hard</h3><p>A quarter of each pattern sits just under the thresholds, so recall cannot be a trivial 100%.</p></div>
+<div class="card"><h3>Three sizes</h3><p>10K, 100K and 1M rows, to test how each approach scales.</p></div>
+</div>
+
+<h2>How we compare them</h2>
+<div class="tw"><table>
+<tr><th></th><th>Batch (Hadoop + Hive)</th><th>Streaming (Kafka)</th></tr>
+<tr><td>Speed measured as</td><td>End-to-end job time, from HDFS load to flags collected</td><td>Per-event latency: p50, p95, p99, max</td></tr>
+<tr><td>What it sees</td><td>The whole history, past and future</td><td>Only events that have already arrived</td></tr>
+<tr><td>Expected weak spot</td><td>Flags arrive only when the job ends</td><td>Cold start: new users have no baseline</td></tr>
+<tr><td>Load test</td><td>10K, 100K, 1M rows</td><td>Replay rates up to 50K events/sec, tracking consumer lag</td></tr>
+<tr><td>Also measured</td><td colspan="2">Precision, recall, F1, false-positive rate, per-fraud-type recall, CPU and memory</td></tr>
+</table></div>
+
+<h2>Results</h2>
+<p>Load the <span class="pill">batch_metrics_*.json</span> and <span class="pill">stream_metrics_*.json</span> files from your Drive <span class="pill">BDC_Fraud/results</span> folder. Nothing is shown until you do, so no numbers here are invented.</p>
+<div class="drop"><input type="file" id="files" accept=".json" multiple aria-label="Load metrics JSON files"><p class="note" id="fmsg">No files loaded yet.</p><div id="chips"></div></div>
+<details class="card" style="margin-top:12px"><summary>Batch run finished but no file? Type the numbers in by hand</summary>
+<p class="note">Copy them from the metrics cell of the notebook. Leave unknown fields empty.</p>
+<div class="row"><select id="mp" aria-label="Pipeline"><option value="batch">Batch</option><option value="stream">Streaming</option></select><select id="ms" aria-label="Dataset"><option>10k</option><option>100k</option><option>1m</option></select>
+<input id="mt" placeholder="total time (s)" size="12"><input id="mth" placeholder="throughput /s" size="12"><input id="mpr" placeholder="precision" size="9"><input id="mre" placeholder="recall" size="8"><input id="mf" placeholder="F1" size="6"><input id="mfp" placeholder="FPR" size="6"><input id="mc" placeholder="CPU avg %" size="9"><input id="mm" placeholder="peak mem MB" size="11"></div>
+<div class="row"><span class="note">Streaming only:</span><input id="m50" placeholder="p50 ms" size="7"><input id="m95" placeholder="p95 ms" size="7"><input id="m99" placeholder="p99 ms" size="7"><button id="madd">Add to dashboard</button></div></details>
+<div id="res"></div>
+
+</main>
+<script>
+// ---------- Scenario demo (illustrative logic, mirrors the real rules) ----------
+const SC={
+ burst:{t:[0,40,500,510,520,530,540,900],a:[300,280,310,60,90,70,80,290],
+   note:"Five purchases within 40 seconds. Streaming flags the 4th as soon as it arrives."},
+ cold:{t:[0,3600,7200,10800,14400,18000,21600,25200,28800,32400,36000,39600,43200,46800,50400],
+   a:[300,310,5000,290,305,315,295,300,310,285,320,300,295,305,290],
+   note:"A 5,000 purchase as the user's 3rd transaction. Streaming has no baseline yet; batch sees the whole history."}};
+function judge(k){const s=SC[k],n=s.a.length,S=[],B=[];
+ let c=0,m=0,m2=0;const dq=[];
+ for(let i=0;i<n;i++){let f=[];
+  if(c>=10&&s.a[i]>m+3*Math.sqrt(m2/(c-1)))f.push("amount");
+  c++;const d=s.a[i]-m;m+=d/c;m2+=d*(s.a[i]-m);
+  dq.push(s.t[i]);while(s.t[i]-dq[0]>120)dq.shift();if(dq.length>3)f.push("burst");S.push(f);}
+ const mu=s.a.reduce((x,y)=>x+y)/n,sd=Math.sqrt(s.a.reduce((x,y)=>x+(y-mu)**2,0)/(n-1));
+ for(let i=0;i<n;i++){let f=[];if(n>=10&&s.a[i]>mu+3*sd)f.push("amount");
+  if(i>=3&&s.t[i]-s.t[i-3]<=120)f.push("burst");B.push(f);}
+ return{S,B};}
+let key="burst",timer;
+const $=id=>document.getElementById(id);
+function build(){clearInterval(timer);const s=SC[key];
+ for(const[l,id]of[["ls","ns"],["lb","nb"]]){$(l).innerHTML=s.a.map((a,i)=>`<span class="t" id="${l}${i}">#${i+1} ${a}</span>`).join("");$(id).innerHTML="&nbsp;";}}
+function play(){build();const s=SC[key],{S,B}=judge(key),n=s.a.length;let i=0;
+ timer=setInterval(()=>{
+  if(i<n){$("ls"+i).classList.add("on");if(S[i].length){$("ls"+i).classList.add("hit");$("ls"+i).textContent+=" "+S[i].join("+");}
+   $("lb"+i).classList.add("on");
+   const hs=S.slice(0,i+1).filter(x=>x.length).length;
+   $("ns").textContent=`Event ${i+1} scored on arrival. Flagged so far: ${hs}`;
+   $("nb").textContent=`Collecting events... nothing flagged yet (job not run)`;i++;}
+  else{clearInterval(timer);
+   B.forEach((f,j)=>{if(f.length){$("lb"+j).classList.add("hit");$("lb"+j).textContent+=" "+f.join("+");}});
+   const hs=S.filter(x=>x.length).length,hb=B.filter(x=>x.length).length;
+   $("ns").textContent=`Done. Streaming flagged ${hs}, each within milliseconds of arrival. ${s.note}`;
+   $("nb").textContent=`Job finished: batch flagged ${hb}, all at once at the end.`;}
+ },450);}
+document.querySelectorAll("#sc [data-k]").forEach(b=>b.onclick=()=>{key=b.dataset.k;document.querySelectorAll("#sc [data-k]").forEach(x=>x.classList.toggle("sel",x===b));build();});
+$("play").onclick=play;build();
+
+// ---------- Results loader ----------
+const DATA={batch:{},stream:{}};
+const fx=(v,d=2)=>v==null?"-":(+v).toLocaleString(undefined,{maximumFractionDigits:d});
+$("files").onchange=async e=>{
+ let ok=0,bad=[];
+ for(const f of e.target.files){try{const m=JSON.parse(await f.text());
+   if(m.pipeline==="batch"||m.pipeline==="stream"){DATA[m.pipeline][m.dataset]=m;ok++;}else bad.push(f.name);}catch(x){bad.push(f.name);}}
+ $("fmsg").textContent=`${ok} file(s) loaded.`+(bad.length?` Skipped (not metrics files): ${bad.join(", ")}`:"");
+ render();};
+function render(){
+ const sizes=[...new Set([...Object.keys(DATA.batch),...Object.keys(DATA.stream)])].sort((a,b)=>(DATA.batch[a]||DATA.stream[a]).rows-(DATA.batch[b]||DATA.stream[b]).rows);
+ chips();if(!sizes.length){$("res").innerHTML="";return;}
+ let h=`<div class="tw"><table><tr><th>Dataset</th><th>Pipeline</th><th>Time to detect</th><th>Throughput</th><th>Precision</th><th>Recall</th><th>F1</th><th>FPR</th><th>CPU avg / peak %</th><th>Peak memory MB</th></tr>`;
+ for(const s of sizes){const b=DATA.batch[s],t=DATA.stream[s];
+  if(b)h+=`<tr><td>${s} (${fx(b.rows,0)} rows)</td><td style="color:var(--b)">Batch</td><td>${fx(b.batch_latency_sec)} s (whole job)</td><td>${fx(b.throughput_rps,0)} rows/s</td><td>${fx(b.precision,3)}</td><td>${fx(b.recall,3)}</td><td>${fx(b.f1,3)}</td><td>${fx(b.fpr,4)}</td><td>${fx(b.cpu_avg_pct,0)} / ${fx(b.cpu_peak_pct,0)}</td><td>${fx(b.mem_peak_mb,0)}</td></tr>`;
+  if(t)h+=`<tr><td>${s} (${fx(t.rows,0)} rows)</td><td style="color:var(--s)">Streaming @ ${fx(t.primary_rate_eps,0)}/s</td><td>p50 ${fx(t.latency_median_ms,1)} ms, p99 ${fx(t.latency_p99_ms,1)} ms</td><td>${fx(t.achieved_throughput_eps,0)} events/s</td><td>${fx(t.precision,3)}</td><td>${fx(t.recall,3)}</td><td>${fx(t.f1,3)}</td><td>${fx(t.fpr,4)}</td><td>${fx(t.cpu_avg_pct,0)} / ${fx(t.cpu_peak_pct,0)}</td><td>${fx(t.mem_peak_mb,0)}</td></tr>`;}
+ h+=`</table></div><h3 style="margin-top:22px">Precision, recall and F1</h3>`;
+ for(const s of sizes){h+=`<div class="card" style="margin-top:10px"><b>${s}</b>`;
+  for(const[k,l]of[["precision","Precision"],["recall","Recall"],["f1","F1"]])
+   for(const[p,c]of[["batch","bb"],["stream","bs"]]){const m=DATA[p][s];if(m)h+=`<div class="note">${l}, ${p}: ${fx(m[k],3)}</div><div class="bar ${c}" style="width:${Math.max(1,m[k]*100)}%"></div>`;}
+  h+=`</div>`;}
+ const ty=new Set();sizes.forEach(s=>["batch","stream"].forEach(p=>DATA[p][s]&&Object.keys(DATA[p][s].recall_by_type||{}).forEach(x=>ty.add(x))));
+ h+=`<h3 style="margin-top:22px">Which approach catches which fraud pattern (recall)</h3><div class="tw"><table><tr><th>Dataset</th><th>Pipeline</th>${[...ty].map(x=>`<th>${x}</th>`).join("")}</tr>`;
+ for(const s of sizes)for(const p of["batch","stream"]){const m=DATA[p][s];if(m)h+=`<tr><td>${s}</td><td>${p}</td>${[...ty].map(x=>`<td>${fx((m.recall_by_type||{})[x],3)}</td>`).join("")}</tr>`;}
+ h+=`</table></div>`;
+ for(const s of sizes){const t=DATA.stream[s];if(t&&t.rate_sweep){
+  h+=`<h3 style="margin-top:22px">Streaming under load (${s})</h3><div class="tw"><table><tr><th>Replay rate</th><th>Achieved</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th><th>Max lag</th><th>Fell behind</th></tr>`;
+  h+=t.rate_sweep.map(e=>`<tr><td>${fx(e.replay_rate_eps,0)}/s</td><td>${fx(e.achieved_throughput_eps,0)}/s</td><td>${fx(e.latency_median_ms,1)}</td><td>${fx(e.latency_p95_ms,1)}</td><td>${fx(e.latency_p99_ms,1)}</td><td>${fx(e.max_lag_msgs,0)} msgs</td><td>${e.fell_behind?"yes":"no"}</td></tr>`).join("")+`</table></div>`;}}
+ const both=sizes.filter(s=>DATA.batch[s]&&DATA.stream[s]);
+ const ed=(b,t,hi=true)=>b==null||t==null?"-":Math.abs(b-t)<1e-9?"Tie":((b>t)===hi?"Batch":"Streaming");
+ h+=`<h3 style="margin-top:26px">Head to head</h3>`;
+ if(!both.length)h+=`<p class="note">Needs a batch and a streaming result for the same dataset. Loaded so far: batch ${Object.keys(DATA.batch).join(", ")||"none"}; streaming ${Object.keys(DATA.stream).join(", ")||"none"}.</p>`;
+ for(const s of both){const b=DATA.batch[s],t=DATA.stream[s];
+  const R=[["Time to detect",`${fx(b.batch_latency_sec)} s, after the whole job`,`${fx(t.latency_median_ms,1)} ms median per event`,"Streaming"],
+   ["Precision",fx(b.precision,3),fx(t.precision,3),ed(b.precision,t.precision)],["Recall",fx(b.recall,3),fx(t.recall,3),ed(b.recall,t.recall)],
+   ["F1",fx(b.f1,3),fx(t.f1,3),ed(b.f1,t.f1)],["False-positive rate",fx(b.fpr,4),fx(t.fpr,4),ed(b.fpr,t.fpr,false)],
+   ["Throughput",`${fx(b.throughput_rps,0)} rows/s`,`${fx(t.achieved_throughput_eps,0)} events/s`,ed(b.throughput_rps,t.achieved_throughput_eps)],
+   ["Average CPU %",fx(b.cpu_avg_pct,0),fx(t.cpu_avg_pct,0),ed(b.cpu_avg_pct,t.cpu_avg_pct,false)],["Peak memory MB",fx(b.mem_peak_mb,0),fx(t.mem_peak_mb,0),ed(b.mem_peak_mb,t.mem_peak_mb,false)]];
+  h+=`<div class="tw"><table><tr><th>${s} (${fx(b.rows,0)} rows)</th><th style="color:var(--b)">Batch</th><th style="color:var(--s)">Streaming</th><th>Edge</th></tr>${R.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><b>${r[3]}</b></td></tr>`).join("")}</table></div>`;}
+ h+=`<h3 style="margin-top:26px">Batch: where the time goes</h3>`;
+ const ph=[["load_sec","HDFS load",1],["table_sec","Hive table",.75],["query_sec","HiveQL rules",.55],["collect_sec","Collect flags",.35]];
+ let anyph=false;
+ for(const s of sizes){const b=DATA.batch[s];if(!b||b.query_sec==null)continue;anyph=true;const tot=ph.reduce((x,p)=>x+(b[p[0]]||0),0)||1;
+  h+=`<div class="card" style="margin-top:10px"><b>${s}</b> <span class="note">total ${fx(b.total_sec)} s</span><div style="display:flex;margin:6px 0;border-radius:4px;overflow:hidden">${ph.map(p=>`<div style="width:${(b[p[0]]||0)/tot*100}%;height:16px;background:var(--b);opacity:${p[2]}"></div>`).join("")}</div><div class="note">${ph.map(p=>`${p[1]}: ${fx(b[p[0]])} s`).join(" &nbsp;|&nbsp; ")}</div></div>`;}
+ if(!anyph)h+=`<p class="note">Phase timings appear when a batch metrics file is loaded.</p>`;
+ h+=`<h3 style="margin-top:26px">Time to process the whole dataset</h3><p class="note">Streaming time is set by the replay rate; batch time is the job itself.</p>`;
+ const mx=Math.max(...sizes.flatMap(s=>[DATA.batch[s]&&DATA.batch[s].total_sec,DATA.stream[s]&&DATA.stream[s].total_sec].filter(x=>x)),1);
+ for(const s of sizes){h+=`<div class="card" style="margin-top:10px"><b>${s}</b>`;for(const[p,c,l]of[["batch","bb","Batch"],["stream","bs","Streaming"]]){const m=DATA[p][s];if(m&&m.total_sec)h+=`<div class="note">${l}: ${fx(m.total_sec)} s</div><div class="bar ${c}" style="width:${Math.max(1,m.total_sec/mx*100)}%"></div>`;}h+=`</div>`;}
+ h+=`<h3 style="margin-top:26px">Confusion matrices</h3><div class="grid">`;
+ for(const s of sizes)for(const p of["batch","stream"]){const m=DATA[p][s];if(m&&m.tp!=null)h+=`<div class="card ${p[0]}"><b>${p=="batch"?"Batch":"Streaming"}, ${s}</b><table style="min-width:0"><tr><th></th><th>pred normal</th><th>pred fraud</th></tr><tr><td>actual normal</td><td>${fx(m.tn,0)}</td><td>${fx(m.fp,0)}</td></tr><tr><td>actual fraud</td><td>${fx(m.fn,0)}</td><td><b>${fx(m.tp,0)}</b></td></tr></table></div>`;}
+ h+=`</div>`;
+ $("res").innerHTML=h;}
+function chips(){$("chips").innerHTML=["batch","stream"].map(p=>["10k","100k","1m"].map(s=>{const ok=DATA[p][s];return `<span class="pill" style="border-color:${ok?"var(--ok)":"var(--line)"};color:${ok?"var(--ok)":"var(--mut)"}">${p=="batch"?"Batch":"Streaming"} ${s}: ${ok?"loaded":"waiting"}</span>`}).join("")).join("<br>");}
+$("madd").onclick=()=>{const g=i=>{const v=$(i).value.trim();return v===""?null:+v},p=$("mp").value,s=$("ms").value;
+ DATA[p][s]={pipeline:p,dataset:s,rows:{"10k":1e4,"100k":1e5,"1m":1e6}[s],total_sec:g("mt"),batch_latency_sec:g("mt"),throughput_rps:g("mth"),achieved_throughput_eps:g("mth"),precision:g("mpr"),recall:g("mre"),f1:g("mf"),fpr:g("mfp"),cpu_avg_pct:g("mc"),mem_peak_mb:g("mm"),latency_median_ms:g("m50"),latency_p95_ms:g("m95"),latency_p99_ms:g("m99")};
+ $("fmsg").textContent=`Added ${p} ${s} by hand.`;render();};
+chips();
+</script></body></html>
